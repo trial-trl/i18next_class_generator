@@ -113,6 +113,10 @@ class I18NextClassGenerator implements Builder {
     final library = LibraryBuilder();
     var topLevelClass = ClassBuilder();
     library.directives.add(Directive.import('package:i18next/i18next.dart'));
+    library.directives
+        .add(Directive.import('package:json_annotation/json_annotation.dart'));
+    library.directives.add(
+        Directive.part('${outFile.split('/').last.split('.').first}.g.dart'));
 
     topLevelClass
       ..name = 'I18n'
@@ -155,15 +159,33 @@ class I18NextClassGenerator implements Builder {
       // generate constructor and required I18Next variable
       _class
         ..name = classname
-        ..fields.add(Field((fb) => fb
-          ..name =
-              'i18next' // adds a variable with name of 'i18nxt' eg: final I18Next i18next;
-          ..modifier = FieldModifier.final$ //Gives it the type of final
-          ..type = const Reference('I18Next')))
+        ..annotations.add(
+          const Reference('JsonSerializable(createFactory: false)'),
+        )
+        ..fields.add(
+          Field(
+            (fb) => fb
+              ..name =
+                  'i18next' // adds a variable with name of 'i18nxt' eg: final I18Next i18next;
+              ..modifier = FieldModifier.final$ //Gives it the type of final
+              ..type = const Reference('I18Next')
+              ..annotations.add(
+                const Reference(
+                    'JsonKey(includeFromJson: false, includeToJson: false)'),
+              ),
+          ),
+        )
         ..constructors.add(
-            Constructor((cb) => cb.requiredParameters.add(Parameter((p) => p
-              ..name = 'i18next' //Affects class constructor
-              ..toThis = true))));
+          Constructor(
+            (cb) => cb.requiredParameters.add(
+              Parameter(
+                (p) => p
+                  ..name = 'i18next' //Affects class constructor
+                  ..toThis = true,
+              ),
+            ),
+          ),
+        );
 
       // ListBuilder<Method> methods = ListBuilder();
       for (var translationPair in json.entries) {
@@ -222,13 +244,22 @@ class I18NextClassGenerator implements Builder {
               parameters[i] = i;
             }
           }
-          _class.methods.add(Method((mb) => mb
-            ..returns = const Reference("String")
-            ..requiredParameters
-                .add(Parameter((p) => p..name = translatedMatches.join(",")))
-            ..name = _translationKey
-            ..body = Code(
-                'return i18next.t(\'$namespace:${_generatePath(path, _translationKey)}\'${containsObject == true ? ", variables: $i18nVariables" : ""}${parameters.toString().isNotEmpty ? ', ' + parameters.toString().substring(1, parameters.toString().length - 1) : ""});')));
+          _class.methods.add(
+            Method(
+              (mb) => mb
+                ..returns = const Reference("String")
+                ..requiredParameters.add(
+                    Parameter((p) => p..name = translatedMatches.join(",")))
+                ..name = _translationKey
+                ..annotations.add(
+                  Reference(
+                    "JsonKey(name: '${_safeVarialbeName(_translationKey)}')",
+                  ),
+                )
+                ..body = Code(
+                    'return i18next!.t(\'$namespace:${_generatePath(path, _translationKey)}\'${containsObject == true ? ", variables: $i18nVariables" : ""}${parameters.toString().isNotEmpty ? ', ' + parameters.toString().substring(1, parameters.toString().length - 1) : ""});'),
+            ),
+          );
         }
         //Handles nested types
         else if (_translationValue.runtimeType != String) {
@@ -243,23 +274,49 @@ class I18NextClassGenerator implements Builder {
           final resp = _generateClassName(_classname);
 
           _class.methods.add(
-            Method(
-              (mb) => mb
-                ..returns = Reference(resp)
-                ..type = MethodType.getter
-                ..name = _safeVarialbeName(_translationKey)
-                ..body = Code("return $resp(i18next);"),
-            ),
+            Method((mb) => mb
+              ..returns = Reference(resp)
+              ..type = MethodType.getter
+              ..name = _safeVarialbeName(_translationKey)
+              ..annotations.add(
+                Reference(
+                  "JsonKey(name: '${_safeVarialbeName(_translationKey)}')",
+                ),
+              )
+              ..body = Code("return $resp(i18next);")),
           );
         } else {
-          _class.methods.add(Method((mb) => mb
-            ..returns = const Reference("String")
-            ..type = MethodType.getter
-            ..name = _safeVarialbeName(_translationKey)
-            ..body = Code(
-                'return i18next.t(\'$namespace:${_generatePath(path, _translationKey)}\');')));
+          _class.methods.add(
+            Method(
+              (mb) => mb
+                ..returns = const Reference("String")
+                ..type = MethodType.getter
+                ..name = _safeVarialbeName(_translationKey)
+                ..annotations.add(
+                  Reference(
+                    "JsonKey(name: '${_safeVarialbeName(_translationKey)}')",
+                  ),
+                )
+                ..body = Code(
+                    'return i18next!.t(\'$namespace:${_generatePath(path, _translationKey)}\');'),
+            ),
+          );
         }
       }
+
+      final serializedClassname = classname.replaceAll(RegExp(r'_'), '');
+
+      _class.methods.add(
+        Method(
+          (mb) => mb
+            ..returns = const Reference("Map<String, dynamic>")
+            ..name = 'toJson'
+            ..body = Code(
+              'return _\$${serializedClassname}ToJson(this);',
+            ),
+        ),
+      );
+
       classes.add(_class);
       return classes;
     }
